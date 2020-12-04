@@ -6,17 +6,21 @@ import * as E from "fp-ts/lib/Either";
 import * as TE from "fp-ts/lib/TaskEither";
 
 import { ClothItem, ClothItemDisplay, ClothItemType } from "./ClothItem";
-import { apiEndpoint, headers } from "../config";
+import { apiEndpoint, headers, pageSize, apiCacheLengthMinutes } from "../config";
 import { pipe } from "fp-ts/lib/function";
 
 
 type CategoryProps = {
     name: string,
+    page: number,
 };
 type CategoryState = {
     error: Error | null,
     loading: boolean,
     items: readonly ClothItemType[],
+    manufacturers: readonly ManufacturerResponseType[],
+    page: number,
+    maxPage: number
 };
 
 const ClothItemsList = t.array(ClothItem)
@@ -33,6 +37,7 @@ const ManufacturerItemsList = t.array(ManufacturerItem)
 // type ManufacturerItemsListType = t.TypeOf<typeof ManufacturerItemsList>
 
 const ManufacturerResponse = t.type({
+    fetchedDate: t.union([t.number, t.undefined]),
     name: t.union([t.string, t.undefined]),
     code: t.number,
     response: ManufacturerItemsList,
@@ -47,7 +52,22 @@ class Category extends Component<CategoryProps, CategoryState> {
             error: null,
             loading: true,
             items: [],
+            manufacturers: [],
+            page: this.props.page,
+            maxPage: 1,
         };
+    }
+
+    componentDidUpdate(prevProps: CategoryProps) {
+        if (this.props.name !== prevProps.name) {
+            this.setState({
+                error: null,
+                loading: true,
+                items: [],
+                page: this.props.page,
+            });
+            this.getData()
+        }
     }
 
     componentDidMount() {
@@ -69,7 +89,17 @@ class Category extends Component<CategoryProps, CategoryState> {
             ))
         )()
         let manufacturers = E.map((items: ClothItemsListType) => {
-            return [...new Set(items.map(((item: ClothItemType) => item.manufacturer)))];
+            return [...new Set(items.map(((item: ClothItemType) => item.manufacturer)))]
+                .filter((manufacturer_name) => {
+                    let found_manufacturer = this.state.manufacturers.find(manu => manu.name === manufacturer_name)
+                    if (found_manufacturer === undefined)
+                        return true;
+                    let msPerMinute = 60_000;
+                    let refetchDateTrigger = Date.now() - (apiCacheLengthMinutes * msPerMinute)
+                    if (found_manufacturer.fetchedDate === undefined)
+                        return true
+                    return found_manufacturer.fetchedDate < refetchDateTrigger
+                });
         })(items)
         let manufacturersData = await pipe(
             TE.fromEither(manufacturers),
@@ -87,7 +117,13 @@ class Category extends Component<CategoryProps, CategoryState> {
                         TE.chain((manufacturerJson: any) => TE.fromEither(
                             E.mapLeft(error => new Error(`Could not convert manufacturer JSON to io-ts types: ${error}`))(ManufacturerResponse.decode(manufacturerJson))
                         )),
-                        TE.map((manufacturer) => { return { ...manufacturer, name: manufacturer_name } })
+                        TE.map((manufacturer) => {
+                            return {
+                                ...manufacturer,
+                                name: manufacturer_name,
+                                fetchedDate: Date.now(),
+                            }
+                        })
                     )
                 }))
             })
@@ -107,22 +143,40 @@ class Category extends Component<CategoryProps, CategoryState> {
                     items: [],
                 });
             }, (manufacturersData: readonly ManufacturerResponseType[]) => {
-                const itemsWithAvailability = items.map((item) => {
-                    let man = manufacturersData.find((manu) => manu.name === item.manufacturer);
-                    if (man === undefined) {
-                        return { ...item, availability: undefined };
+                const oldManufacturers = this.state.manufacturers;
+                let newManufacturers: ManufacturerResponseType[] = [];
+                oldManufacturers.forEach(oldManufacturer => {
+                    let newManufacturer = manufacturersData.find((newMan) => {
+                        return newMan.name === oldManufacturer.name
+                    })
+                    if (newManufacturer === undefined) {
+                        newManufacturers.push(oldManufacturer)
                     }
-                    let manItem: ManufacturerItemType | undefined = man.response.find((manuItem) => manuItem.id === item.id.toUpperCase())
-                    if (manItem === undefined) {
-                        console.log(item.id.toUpperCase());
-                        return { ...item, availability: undefined };
-                    }
-                    return { ...item, availability: manItem.DATAPAYLOAD };
-                })
+                });
+                manufacturersData.forEach(newManufacturer => newManufacturers.push(newManufacturer))
+
+                const maxPage = Math.round(items.length / pageSize) + 1;
+                const itemsWithAvailability = items
+                    .slice((this.state.page - 1) * pageSize, this.state.page * pageSize)
+                    .map((item) => {
+                        let man = newManufacturers.find((manu) => manu.name === item.manufacturer);
+                        if (man === undefined) {
+                            return { ...item, availability: undefined };
+                        }
+                        let manItem: ManufacturerItemType | undefined = man.response.find((manuItem) => manuItem.id === item.id.toUpperCase())
+                        if (manItem === undefined) {
+                            console.log(item.id.toUpperCase());
+                            return { ...item, availability: undefined };
+                        }
+                        return { ...item, availability: manItem.DATAPAYLOAD };
+                    })
+
                 this.setState({
                     error: null,
                     loading: false,
                     items: itemsWithAvailability,
+                    manufacturers: newManufacturers,
+                    maxPage
                 });
             })(manufacturersData)
         })(items)
@@ -130,13 +184,25 @@ class Category extends Component<CategoryProps, CategoryState> {
 
     render() {
         const { error, loading, items } = this.state;
+        const reloadButton = (
+            <button
+                className="btn"
+                onClick={() => {
+                    this.setState({
+                        error: null,
+                        manufacturers: [],
+                        loading: true
+                    });
+                    this.getData()
+                }}>
+                Reload
+            </button>
+        )
         if (error) {
             return (
                 <div>
-                    <button className="btn green darken-2" onClick={() => { this.setState({ error: null, loading: true }); this.getData() }}>
-                        Reload
-                    </button>
-                    <div>Error: {error}</div>
+                    {reloadButton}
+                    <div>Error: {`${error}`}</div>
                 </div>
             );
         } else if (loading) {
@@ -147,12 +213,30 @@ class Category extends Component<CategoryProps, CategoryState> {
                     <ClothItemDisplay item={i} key={i.id}></ClothItemDisplay>
                 );
             });
+            const paginationLinks = [...Array(this.state.maxPage).keys()].map((pageNumber) => {
+                let className = (pageNumber + 1 === this.state.page) ? "btn" : "btn btn-flat";
+                return (
+                    <li>
+                        <button
+                            className={className}
+                            onClick={() => {
+                                this.setState({ loading: true, page: pageNumber + 1 });
+                                this.getData()
+                            }}>
+                            {pageNumber + 1}
+                        </button>
+                    </li>
+                )
+            })
 
             return (
                 <div>
-                    <button className="btn green darken-2" onClick={() => { this.setState({ loading: true }); this.getData() }}>
-                        Reload
-                    </button>
+                    {reloadButton}
+                    <div className="row">
+                        <ul className="pagination">
+                            {paginationLinks}
+                        </ul>
+                    </div>
                     <div className="row">
                         {items_components}
                     </div>

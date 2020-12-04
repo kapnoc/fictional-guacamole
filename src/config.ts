@@ -5,3 +5,7 @@ export const headers = {
     'Content-Type': 'application/json',
     // 'x-force-error-mode': 'all',
 };
+
+export const pageSize = 40;
+
+export const apiCacheLengthMinutes = 5;
