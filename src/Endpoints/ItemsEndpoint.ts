@@ -15,6 +15,7 @@ export const ClothItem = t.type({
     price: t.number,
     manufacturer: t.string,
 })
+export type ClothItemType = t.TypeOf<typeof ClothItem>
 
 export const ClothItemsList = t.array(ClothItem)
 export type ClothItemsListType = t.TypeOf<typeof ClothItemsList>

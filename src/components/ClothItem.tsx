@@ -1,10 +1,7 @@
 import React from "react";
 import { Component } from "react";
-import * as t from 'io-ts';
 
-import { ClothItem } from "../Endpoints/ItemsEndpoint";
-
-export type ClothItemType = t.TypeOf<typeof ClothItem>
+import { ClothItemType } from "../Endpoints/ItemsEndpoint";
 
 export type ClothItemProps = {
     item: ClothItemType

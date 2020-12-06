@@ -2,13 +2,12 @@ import React from "react";
 import { Component } from "react";
 
 import * as E from "fp-ts/lib/Either";
-import * as TE from "fp-ts/lib/TaskEither";
-import { pipe } from "fp-ts/lib/function";
 
-import { ClothItemDisplay, ClothItemType } from "./ClothItem";
-import { apiEndpoint, headers, pageSize, apiCacheLengthMinutes } from "../config";
-import { ClothItemsListType, getItems } from "../Endpoints/ItemsEndpoint";
-import { getManufacturers, ManufacturerItemType, ManufacturerResponse, ManufacturerResponseType } from "../Endpoints/ManufacturersEndpoint";
+import { apiCacheLengthMinutes } from "../config";
+import { ClothItemDisplay } from "./ClothItem";
+import { ClothItemsListType, ClothItemType, getItems } from "../Endpoints/ItemsEndpoint";
+import { getManufacturers, ManufacturerResponseType } from "../Endpoints/ManufacturersEndpoint";
+import { MatchResultsType, matchItemsWithAvailability } from "../Endpoints/MatchItems";
 
 
 type CategoryProps = {
@@ -71,59 +70,31 @@ class Category extends Component<CategoryProps, CategoryState> {
                     return found_manufacturer.fetchedDate < refetchDateTrigger
                 });
         })(items)
-        let manufacturersData = await getManufacturers(manufacturer_names);
+        let manufacturers = await getManufacturers(manufacturer_names);
 
-        E.fold((error) => {
+        let itemsWithAvailability = matchItemsWithAvailability(
+            items,
+            manufacturers,
+            this.state.manufacturers,
+            this.state.page)
+
+        E.fold((error: Error) => {
             this.setState({
-                error: new Error(`Error getting items: ${error}`),
+                error: error,
                 loading: false,
                 items: [],
+                manufacturers: [],
+                maxPage: 1,
             });
-        }, (items: ClothItemsListType) => {
-            E.fold((error) => {
-                this.setState({
-                    error: new Error(`Error getting availability of items: ${error}`),
-                    loading: false,
-                    items: [],
-                });
-            }, (manufacturersData: readonly ManufacturerResponseType[]) => {
-                const oldManufacturers = this.state.manufacturers;
-                let newManufacturers: ManufacturerResponseType[] = [];
-                oldManufacturers.forEach(oldManufacturer => {
-                    let newManufacturer = manufacturersData.find((newMan) => {
-                        return newMan.name === oldManufacturer.name
-                    })
-                    if (newManufacturer === undefined) {
-                        newManufacturers.push(oldManufacturer)
-                    }
-                });
-                manufacturersData.forEach(newManufacturer => newManufacturers.push(newManufacturer))
-
-                const maxPage = Math.round(items.length / pageSize) + 1;
-                const itemsWithAvailability = items
-                    .slice((this.state.page - 1) * pageSize, this.state.page * pageSize)
-                    .map((item) => {
-                        let man = newManufacturers.find((manu) => manu.name === item.manufacturer);
-                        if (man === undefined) {
-                            return { ...item, availability: undefined };
-                        }
-                        let manItem: ManufacturerItemType | undefined = man.response.find((manuItem) => manuItem.id === item.id.toUpperCase())
-                        if (manItem === undefined) {
-                            console.log(item.id.toUpperCase());
-                            return { ...item, availability: undefined };
-                        }
-                        return { ...item, availability: manItem.DATAPAYLOAD };
-                    })
-
-                this.setState({
-                    error: null,
-                    loading: false,
-                    items: itemsWithAvailability,
-                    manufacturers: newManufacturers,
-                    maxPage
-                });
-            })(manufacturersData)
-        })(items)
+        }, (matchResults: MatchResultsType) => {
+            this.setState({
+                error: null,
+                loading: false,
+                items: matchResults.items,
+                manufacturers: matchResults.newManufacturers,
+                maxPage: matchResults.maxPage,
+            });
+        })(itemsWithAvailability)
     }
 
     render() {
