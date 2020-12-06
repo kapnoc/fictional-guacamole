@@ -1,7 +1,7 @@
 import React from "react";
 import { Component } from "react";
 
-import { ClothItemType } from "../Endpoints/ItemsEndpoint";
+import { ClothItemType } from "../endpoints/ItemsEndpoint";
 
 export type ClothItemProps = {
     item: ClothItemType

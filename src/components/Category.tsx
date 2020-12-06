@@ -5,9 +5,9 @@ import * as E from "fp-ts/lib/Either";
 
 import { apiCacheLengthMinutes } from "../config";
 import { ClothItemDisplay } from "./ClothItem";
-import { ClothItemsListType, ClothItemType, getItems } from "../Endpoints/ItemsEndpoint";
-import { getManufacturers, ManufacturerResponseType } from "../Endpoints/ManufacturersEndpoint";
-import { MatchResultsType, matchItemsWithAvailability } from "../Endpoints/MatchItems";
+import { ClothItemsListType, ClothItemType, getItems } from "../endpoints/ItemsEndpoint";
+import { getManufacturers, ManufacturerResponseType } from "../endpoints/ManufacturersEndpoint";
+import { MatchResultsType, matchItemsWithAvailability } from "../endpoints/MatchItems";
 
 
 type CategoryProps = {
