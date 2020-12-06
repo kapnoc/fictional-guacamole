@@ -1,13 +1,14 @@
 import React from "react";
 import { Component } from "react";
 
-import * as t from 'io-ts';
 import * as E from "fp-ts/lib/Either";
 import * as TE from "fp-ts/lib/TaskEither";
-
-import { ClothItem, ClothItemDisplay, ClothItemType } from "./ClothItem";
-import { apiEndpoint, headers, pageSize, apiCacheLengthMinutes } from "../config";
 import { pipe } from "fp-ts/lib/function";
+
+import { ClothItemDisplay, ClothItemType } from "./ClothItem";
+import { apiEndpoint, headers, pageSize, apiCacheLengthMinutes } from "../config";
+import { ClothItemsListType, getItems } from "../Endpoints/ItemsEndpoint";
+import { getManufacturers, ManufacturerItemType, ManufacturerResponse, ManufacturerResponseType } from "../Endpoints/ManufacturersEndpoint";
 
 
 type CategoryProps = {
@@ -22,27 +23,6 @@ type CategoryState = {
     page: number,
     maxPage: number
 };
-
-const ClothItemsList = t.array(ClothItem)
-type ClothItemsListType = t.TypeOf<typeof ClothItemsList>
-
-
-const ManufacturerItem = t.type({
-    id: t.string,
-    DATAPAYLOAD: t.string,
-})
-export type ManufacturerItemType = t.TypeOf<typeof ManufacturerItem>
-
-const ManufacturerItemsList = t.array(ManufacturerItem)
-// type ManufacturerItemsListType = t.TypeOf<typeof ManufacturerItemsList>
-
-const ManufacturerResponse = t.type({
-    fetchedDate: t.union([t.number, t.undefined]),
-    name: t.union([t.string, t.undefined]),
-    code: t.number,
-    response: ManufacturerItemsList,
-})
-export type ManufacturerResponseType = t.TypeOf<typeof ManufacturerResponse>
 
 
 class Category extends Component<CategoryProps, CategoryState> {
@@ -75,20 +55,10 @@ class Category extends Component<CategoryProps, CategoryState> {
     }
 
     async getData() {
-        const items = await pipe(
-            TE.tryCatch(
-                () => fetch(`${apiEndpoint}/products/${this.props.name}`, { headers, }),
-                (reason) => new Error(`Could not fetch products: ${reason}`)
-            ),
-            TE.chain((itemsRes: Response) => TE.tryCatch(
-                () => itemsRes.json(),
-                (reason) => new Error(`Could not convert products to JSON: ${reason}`)
-            )),
-            TE.chain((itemsJson: any) => TE.fromEither(
-                E.mapLeft(error => new Error(`Could not convert products JSON to io-ts types: ${error}`))(ClothItemsList.decode(itemsJson))
-            ))
-        )()
-        let manufacturers = E.map((items: ClothItemsListType) => {
+        const items = await getItems(this.props.name);
+        // filter manufacturers that have been loaded in the last 5 minutes
+        // (or whatever is in the apiCacheLengthMinutes config entry)
+        let manufacturer_names = E.map((items: ClothItemsListType) => {
             return [...new Set(items.map(((item: ClothItemType) => item.manufacturer)))]
                 .filter((manufacturer_name) => {
                     let found_manufacturer = this.state.manufacturers.find(manu => manu.name === manufacturer_name)
@@ -101,33 +71,7 @@ class Category extends Component<CategoryProps, CategoryState> {
                     return found_manufacturer.fetchedDate < refetchDateTrigger
                 });
         })(items)
-        let manufacturersData = await pipe(
-            TE.fromEither(manufacturers),
-            TE.chain((manufacturers) => {
-                return TE.sequenceArray(manufacturers.map((manufacturer_name: string) => {
-                    return pipe(
-                        TE.tryCatch(
-                            () => fetch(`${apiEndpoint}/availability/${manufacturer_name}`, { headers, }),
-                            (reason) => new Error(`Could not fetch manufacturer: ${reason}`)
-                        ),
-                        TE.chain((manufacturerRes: Response) => TE.tryCatch(
-                            () => manufacturerRes.json(),
-                            (reason) => new Error(`Could not convert manufacturer to JSON: ${reason}`)
-                        )),
-                        TE.chain((manufacturerJson: any) => TE.fromEither(
-                            E.mapLeft(error => new Error(`Could not convert manufacturer JSON to io-ts types: ${error}`))(ManufacturerResponse.decode(manufacturerJson))
-                        )),
-                        TE.map((manufacturer) => {
-                            return {
-                                ...manufacturer,
-                                name: manufacturer_name,
-                                fetchedDate: Date.now(),
-                            }
-                        })
-                    )
-                }))
-            })
-        )()
+        let manufacturersData = await getManufacturers(manufacturer_names);
 
         E.fold((error) => {
             this.setState({

@@ -1,21 +1,12 @@
 import React from "react";
 import { Component } from "react";
-
 import * as t from 'io-ts';
 
+import { ClothItem } from "../Endpoints/ItemsEndpoint";
 
-export const ClothItem = t.type({
-    availability: t.union([t.string, t.undefined]),
-    id: t.string,
-    type: t.string,
-    name: t.string,
-    color: t.array(t.string),
-    price: t.number,
-    manufacturer: t.string,
-})
 export type ClothItemType = t.TypeOf<typeof ClothItem>
 
-type ClothItemProps = {
+export type ClothItemProps = {
     item: ClothItemType
 }
 
